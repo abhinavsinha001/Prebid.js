@@ -580,6 +580,51 @@ function getUserIdsAsEids() {
   return createEidsArray(getCombinedSubmoduleIds(initializedSubmodules));
 }
 
+
+
+/**
+ * This function will be exposed in global-name-space so that userIds for a source can be exposed
+ * Sample use case is exposing this function to ESP
+ */
+function getEncryptedEidsForSource(source,encrypt) {
+	// initialize submodules only when undefined
+	let eids=getUserIdsAsEids()
+	let eidsSignals = {};
+       
+	eids.forEach(function(eid) {
+		if (true === encrypt) {
+			eidsSignals[eid.source] = "1||" + encryptSignals(eid); // If encryption is enabled append version (1|| and encrypt entire object
+		} else {
+			eidsSignals[eid.source] = eid.uids[0].id;
+		}
+
+	});
+	let promise = Promise.resolve(eidsSignals[source]);
+	utils.logInfo(`${MODULE_NAME} - Fetching encrypted eids: ` + eidsSignals[source]);
+	return promise;
+  }
+
+function encryptSignals(signals) {
+	return btoa(JSON.stringify(signals)); // Test encryption. To be replaced with better algo
+}
+
+function registerSignalSources(gtag, signalSources, encrypt) {
+	gtag.encryptedSignalProviders = gtag.encryptedSignalProviders || [];
+	signalSources.forEach(function(source) {
+		utils.logInfo(`${MODULE_NAME} - Registering signal provider: ` + source);
+		let updatedSrc = source;
+		if (true === encrypt) {
+			updatedSrc = source + "/enc"; // Update source value and append /enc to indicate encrypted signal. 
+
+		}	
+		gtag.encryptedSignalProviders.push({
+			id: updatedSrc,
+			collectorFunction: function() {
+				return pbjs.getEncryptedEidsForSource(source, encrypt);
+			}
+		});
+	});
+}
 /**
 * This function will be exposed in the global-name-space so that userIds can be refreshed after initialization.
 * @param {RefreshUserIdsOptions} options
@@ -830,6 +875,8 @@ export function init(config) {
   // exposing getUserIds function in global-name-space so that userIds stored in Prebid can be used by external codes.
   (getGlobal()).getUserIds = getUserIds;
   (getGlobal()).getUserIdsAsEids = getUserIdsAsEids;
+  (getGlobal()).getEncryptedEidsForSource = getEncryptedEidsForSource;
+  (getGlobal()).registerSignalSources = registerSignalSources;
   (getGlobal()).refreshUserIds = refreshUserIds;
 }
 
