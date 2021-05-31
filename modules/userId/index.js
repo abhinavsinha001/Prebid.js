@@ -586,44 +586,70 @@ function getUserIdsAsEids() {
  * This function will be exposed in global-name-space so that userIds for a source can be exposed
  * Sample use case is exposing this function to ESP
  */
-function getEncryptedEidsForSource(source,encrypt) {
-	// initialize submodules only when undefined
-	let eids=getUserIdsAsEids()
-	let eidsSignals = {};
-       
-	eids.forEach(function(eid) {
-		if (true === encrypt) {
-			eidsSignals[eid.source] = "1||" + encryptSignals(eid); // If encryption is enabled append version (1|| and encrypt entire object
-		} else {
-			eidsSignals[eid.source] = eid.uids[0].id;
-		}
+function getEncryptedEidsForSource(source, encrypt, customFunction) {
 
-	});
-	let promise = Promise.resolve(eidsSignals[source]);
-	utils.logInfo(`${MODULE_NAME} - Fetching encrypted eids: ` + eidsSignals[source]);
-	return promise;
+  let enc = encrypt;
+  let eids = [];
+  let eidsSignals = {};
+  if (typeof customFunction === "function") {
+    utils.logInfo(`${MODULE_NAME} - Getting encrypted signal from custom function : ` + customFunction.name + `& source : ` + source);
+    var customSignal = customFunction(source); // Publishers are expected to define a common function which will be proxy for signal function.
+    eidsSignals[source] = encryptSignals(customSignal); // by default encrypt using base64 to avoid JSON errors
+  } else {
+    // initialize signal with eids by default
+    eids = getUserIdsAsEids();
+    utils.logInfo(`${MODULE_NAME} - Getting encrypted signal for eids : ` + JSON.stringify(eids));
+    eids.forEach(function (eid) {
+      if (true === enc) {
+        eidsSignals[eid.source] = encryptSignals(eid); // If encryption is enabled append version (1||) and encrypt entire object
+      } else {
+        eidsSignals[eid.source] = eid.uids[0].id;
+      }
+    });
   }
-
-function encryptSignals(signals) {
-	return btoa(JSON.stringify(signals)); // Test encryption. To be replaced with better algo
+  let promise = Promise.resolve(eidsSignals[source]);
+  utils.logInfo(`${MODULE_NAME} - Fetching encrypted eids: ` + eidsSignals[source]);
+  return promise;
 }
 
-function registerSignalSources(gtag, signalSources, encrypt) {
-	gtag.encryptedSignalProviders = gtag.encryptedSignalProviders || [];
-	signalSources.forEach(function(source) {
-		utils.logInfo(`${MODULE_NAME} - Registering signal provider: ` + source);
-		let updatedSrc = source;
-		if (true === encrypt) {
-			updatedSrc = source + "/enc"; // Update source value and append /enc to indicate encrypted signal. 
+function encryptSignals(signals,version) {
+  let ver = 1;// This is encryption version can be used to understand encryption algo and signal format default 1= base64
+  if(typeof version !== "undefined"){
+    ver=version;
+  }
+  let encryptedSig = "";
+  switch (ver) {
+    case 1:
+      if (typeof signals === 'object') {
+        encryptedSig = btoa(JSON.stringify(signals)); // Test encryption. To be replaced with better algo
+      } else {
+        encryptedSig = btoa(signals);
+      }
+      break;
+  
+    default:
+      break;
+  }
+  
+  return ver + '||' + encryptedSig;
+}
 
-		}	
-		gtag.encryptedSignalProviders.push({
-			id: updatedSrc,
-			collectorFunction: function() {
-				return pbjs.getEncryptedEidsForSource(source, encrypt);
-			}
-		});
-	});
+function registerSignalSources(gtag, signalSources, encrypt, customFunction) {
+  gtag.encryptedSignalProviders = gtag.encryptedSignalProviders || [];
+  signalSources.forEach(function (source) {
+    utils.logInfo(`${MODULE_NAME} - Registering signal provider: ` + source);
+    let updatedSrc = source;
+    if (true === encrypt) {
+      updatedSrc = source + "/enc"; // Update source value and append /enc to indicate encrypted signal. 
+
+    }
+    gtag.encryptedSignalProviders.push({
+      id: updatedSrc,
+      collectorFunction: function () {
+        return pbjs.getEncryptedEidsForSource(source, encrypt, customFunction);
+      }
+    });
+  });
 }
 /**
 * This function will be exposed in the global-name-space so that userIds can be refreshed after initialization.
