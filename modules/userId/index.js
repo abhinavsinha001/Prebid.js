@@ -606,6 +606,69 @@ function getUserIdsAsEids() {
 }
 
 /**
+ * This function will be exposed in global-name-space so that userIds for a source can be exposed
+ * Sample use case is exposing this function to ESP
+ */
+function getEncryptedEidsForSource(source, encrypt, customFunction) {
+  let enc = encrypt;
+  let eids = [];
+  let eidsSignals = {};
+  if (typeof customFunction === 'function') {
+    utils.logInfo(`${MODULE_NAME} - Getting encrypted signal from custom function : ` + customFunction.name + `& source : ` + source);
+    var customSignal = customFunction(source); // Publishers are expected to define a common function which will be proxy for signal function.
+    eidsSignals[source] = encryptSignals(customSignal); // by default encrypt using base64 to avoid JSON errors
+  } else {
+    // initialize signal with eids by default
+    eids = getUserIdsAsEids();
+    utils.logInfo(`${MODULE_NAME} - Getting encrypted signal for eids : ` + JSON.stringify(eids));
+    eids.forEach(function (eid) {
+      if (enc === true) {
+        eidsSignals[eid.source] = encryptSignals(eid); // If encryption is enabled append version (1||) and encrypt entire object
+      } else {
+        eidsSignals[eid.source] = eid.uids[0].id;
+      }
+    });
+  }
+  let promise = Promise.resolve(eidsSignals[source]);
+  utils.logInfo(`${MODULE_NAME} - Fetching encrypted eids: ` + eidsSignals[source]);
+  return promise;
+}
+
+function encryptSignals(signals, version) {
+  let ver = 1;// This is encryption version can be used to understand encryption algo and signal format default 1= base64
+  if (typeof version !== 'undefined') {
+    ver = version;
+  }
+  let encryptedSig = '';
+  switch (ver) {
+    case 1:
+      if (typeof signals === 'object') {
+        encryptedSig = JSON.stringify(signals).toString('base64') // Test encryption. To be replaced with better algo
+      } else {
+        encryptedSig = signals.toString('base64')
+      }
+      break;
+
+    default:
+      break;
+  }
+
+  return ver + '||' + encryptedSig;
+}
+
+function registerSignalSources(gtag, signalSources, encrypt, customFunction) {
+  gtag.encryptedSignalProviders = gtag.encryptedSignalProviders || [];
+  signalSources.forEach(function (source) {
+    utils.logInfo(`${MODULE_NAME} - Registering signal provider: ` + source);
+    gtag.encryptedSignalProviders.push({
+      id: source,
+      collectorFunction: function () {
+        return pbjs.getEncryptedEidsForSource(source, encrypt, customFunction);
+      }
+    });
+  });
+}
+/**
 * This function will be exposed in the global-name-space so that userIds can be refreshed after initialization.
 * @param {RefreshUserIdsOptions} options
 */
@@ -878,6 +941,8 @@ export function init(config) {
   // exposing getUserIds function in global-name-space so that userIds stored in Prebid can be used by external codes.
   (getGlobal()).getUserIds = getUserIds;
   (getGlobal()).getUserIdsAsEids = getUserIdsAsEids;
+  (getGlobal()).getEncryptedEidsForSource = getEncryptedEidsForSource;
+  (getGlobal()).registerSignalSources = registerSignalSources;
   (getGlobal()).refreshUserIds = refreshUserIds;
 }
 
